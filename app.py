@@ -1,25 +1,28 @@
 # -*- coding: utf-8 -*-
 # ===========================================================
-# AI-Deal-Checker – גרסת הצלבה חכמה: מודעה + נתוני שוק
+# AI-Deal-Checker – גרסת הצלבה חכמה עם תיקון JSON אוטומטי
 # ===========================================================
 
 import streamlit as st
 import google.generativeai as genai
 import json
+from json_repair import repair_json
 from PIL import Image
 import traceback
 
 # ---------- הגדרות כלליות ----------
 st.set_page_config(page_title="AI Deal Checker 🚗", page_icon="🚗", layout="centered")
 
+# קריאת מפתח API מסודר
 api_key = st.secrets["GEMINI_API_KEY"]
 genai.configure(api_key=api_key)
 
+# שימוש במודל המתקדם ביותר
 model = genai.GenerativeModel("gemini-2.5-pro")
 
 # ---------- ממשק ----------
 st.title("🚗 AI Deal Checker – בדיקת כדאיות חכמה")
-st.write("העתק את טקסט המודעה (כולל מחיר, שנה, ק״מ וכו׳) והעלה תמונות של הרכב לביצוע הצלבה בין הנתונים במודעה לנתונים האמיתיים מהאינטרנט:")
+st.write("העתק את טקסט המודעה (כולל מחיר, שנה, ק״מ וכו׳) והעלה תמונות של הרכב לביצוע הצלבה בין נתוני המודעה לנתוני השוק בפועל:")
 
 ad_text = st.text_area("📋 הדבק כאן את טקסט המודעה:", height=250)
 uploaded_images = st.file_uploader(
@@ -31,7 +34,7 @@ uploaded_images = st.file_uploader(
 st.markdown(
     """
     <div style='background-color:#fff3cd; border-radius:10px; padding:10px; border:1px solid #ffeeba;'>
-    ⚠️ <b>הבהרה חשובה:</b> זהו ניתוח חכם אך אינו מהווה תחליף לבדיקה במכון מורשה.
+    ⚠️ <b>הבהרה:</b> ניתוח זה מבוסס בינה מלאכותית ואינו תחליף לבדיקה מקצועית.
     <br>יש לבקש היסטוריית טיפולים מלאה ולהוציא דו״ח עבר ביטוחי לפני רכישה.
     </div>
     """,
@@ -118,18 +121,9 @@ if st.button("חשב ציון כדאיות"):
 
                 response = model.generate_content(inputs, request_options={"timeout": 180})
 
-                # ניקוי פלט
-                raw = response.text.strip()
-                for token in ['```json', '```', '\n', '\r']:
-                    raw = raw.replace(token, '')
-                raw = raw.replace('\\"', '"').replace("”", '"').replace("“", '"')
-
-                try:
-                    data = json.loads(raw)
-                except json.JSONDecodeError:
-                    st.warning("בוצעה התאמה אוטומטית לפלט JSON לא תקין.")
-                    fixed = raw[raw.find('{'):raw.rfind('}') + 1]
-                    data = json.loads(fixed)
+                # תיקון אוטומטי של JSON
+                fixed_json = repair_json(response.text)
+                data = json.loads(fixed_json)
 
                 # ---------- הצגת תוצאות ----------
                 st.subheader(f"🚦 ציון כדאיות כולל: {data['deal_score']}/100 — {data['classification']}")
@@ -149,8 +143,8 @@ if st.button("חשב ציון כדאיות"):
                 for r in data["key_reasons"]:
                     st.write(f"• {r}")
 
-                st.caption("© 2025 Car Advisor AI – AI-Deal-Checker | גרסת הצלבה חכמה")
+                st.caption("© 2025 Car Advisor AI – AI-Deal-Checker | גרסת הצלבה חכמה עם תיקון JSON")
 
-            except Exception:
-                st.error("❌ לא ניתן היה לעבד את הפלט.")
+            except Exception as e:
+                st.error("❌ שגיאה בעיבוד הפלט או בקריאת המידע מהמודל.")
                 st.code(traceback.format_exc())
