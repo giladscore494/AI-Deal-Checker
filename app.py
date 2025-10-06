@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # ===========================================================
-# AI-Deal-Checker – גרסת DEBUG
-# מציג פלט גולמי מהמנוע למעקב שגיאות
+# AI-Deal-Checker – גרסה יציבה להזנת טקסט ומספר תמונות
 # ===========================================================
 
 import streamlit as st
@@ -10,28 +9,30 @@ import json
 from PIL import Image
 import traceback
 
-# ---------- הגדרות כלליות ----------
+# ---------- הגדרות ----------
 st.set_page_config(page_title="AI Deal Checker 🚗", page_icon="🚗", layout="centered")
 
-# קריאת מפתח API
 api_key = st.secrets["GEMINI_API_KEY"]
 genai.configure(api_key=api_key)
 
-# בחירת מודל מתקדם
 model = genai.GenerativeModel("gemini-2.5-pro")
 
 # ---------- ממשק ----------
 st.title("🚗 AI Deal Checker – בדיקת כדאיות מודעת רכב")
-st.write("הדבק קישור למודעה או העלה צילום מסך, והמערכת תחשב עבורך ציון אטרקטיביות חכם:")
+st.write("העתק את כל טקסט המודעה (כולל מחיר, ק״מ, שנה, ועוד) והעלה כמה תמונות שתרצה לניתוח חכם של מצב הרכב:")
 
-url = st.text_input("🔗 הדבק כאן קישור למודעה (יד2, פייסבוק וכו׳):")
-uploaded_image = st.file_uploader("📸 או העלה צילום מסך של המודעה:", type=["jpg", "jpeg", "png"])
+ad_text = st.text_area("📋 הדבק כאן את טקסט המודעה:", height=250)
+uploaded_images = st.file_uploader(
+    "📸 העלה תמונות של הרכב (ניתן לבחור כמה תמונות):",
+    type=["jpg", "jpeg", "png"],
+    accept_multiple_files=True
+)
 
 st.markdown(
     """
     <div style='background-color:#fff3cd; border-radius:10px; padding:10px; border:1px solid #ffeeba;'>
     ⚠️ <b>הבהרה חשובה:</b> כלי זה מספק הערכה מבוססת בינה מלאכותית בלבד ואינו מהווה תחליף לבדיקה במכון מורשה.
-    <br>יש לבקש מהמוכר היסטוריית טיפולים מלאה ולהוציא דו״ח עבר ביטוחי (למשל דרך <i>CarVertical</i> או <i>אוטודאטה</i>) לפני רכישה.
+    <br>יש לבקש מהמוכר היסטוריית טיפולים מלאה ולהוציא דו״ח עבר ביטוחי לפני רכישה.
     </div>
     """,
     unsafe_allow_html=True
@@ -39,27 +40,27 @@ st.markdown(
 
 # ---------- פעולה ----------
 if st.button("חשב ציון כדאיות"):
-    if not url and not uploaded_image:
-        st.error("אנא הדבק קישור או העלה תמונה של המודעה.")
+    if not ad_text.strip() and not uploaded_images:
+        st.error("אנא הדבק טקסט או העלה לפחות תמונה אחת.")
     else:
-        with st.spinner("🔍 מבצע ניתוח חכם של המודעה..."):
+        with st.spinner("🔍 מחשב את הציון..."):
             try:
                 prompt = f"""
-אתה משמש כאנליסט מומחה לשוק הרכב הישראלי בתחום רכבים יד שנייה.
-אם הקישור המצורף חסום או שלא נפתח, השתמש בתוכן הידוע עליו ממקורות פתוחים באינטרנט (למשל Yad2, יד2, CarGuru, מחירון לוי יצחק) כדי להעריך את הנתונים של הדגם.
+אתה אנליסט מומחה לשוק הרכב הישראלי.
+קיבלנו את תיאור המודעה הבאה לרכב יד שנייה:
 
-קישור או תוכן המודעה:
-{url if url else "ראה תמונה מצורפת"}
+\"\"\"{ad_text}\"\"\"
 
-⚠️ חובה עליך להשתמש במידע זמין באינטרנט כדי לוודא שכל הנתונים מבוססים על עובדות אמיתיות:
-- בדוק את המחירון המשוער של הדגם והשנתון בישראל.
-- בדוק אם הדגם ידוע כאמין או בעייתי.
-- בדוק אם יש בעיות תחזוקה מוכרות, עלויות טיפולים ממוצעות וביקוש בשוק.
-- אם מידע חסר במודעה – השלם אותו מהאינטרנט.
-- אם הנתונים במודעה נראים חשודים – ציין זאת בנימוקיך.
+אם צורפו תמונות, נתח אותן כדי לזהות מצב חיצוני, תחזוקה, ותיאום מול הנתונים בטקסט.
+השתמש במידע מעודכן ממקורות ציבוריים (מחירונים, ביקוש בשוק, אמינות, תקלות ידועות) כדי לקבוע אם העסקה משתלמת.
 
 חשב ציון אטרקטיביות סופי (0–100) לפי:
-מחיר ביחס לשוק (35%), קילומטראז׳ וגיל (20%), אמינות ותחזוקה (20%), איכות תיאור ותמונות (10%), אמינות המוכר (10%), ביקוש בשוק (5%).
+- מחיר ביחס לשוק (35%)
+- קילומטראז׳ וגיל (20%)
+- אמינות ותחזוקה (20%)
+- איכות תיאור ותמונות (10%)
+- אמינות המוכר (10%)
+- ביקוש לדגם בשוק (5%)
 
 החזר אך ורק JSON מדויק בפורמט הבא:
 {{
@@ -74,26 +75,30 @@ if st.button("חשב ציון כדאיות"):
   "short_verdict": "משפט קצר בעברית המסכם אם העסקה שווה את זה או לא",
   "key_reasons": ["סיבה 1", "סיבה 2", "סיבה 3"]
 }}
-אל תכתוב טקסט לפני או אחרי ה-JSON.
+אל תכתוב שום דבר מחוץ ל-JSON.
 """
 
-                # הפעלת המודל
-                if uploaded_image:
-                    image = Image.open(uploaded_image)
-                    response = model.generate_content([prompt, image], request_options={"timeout": 120})
-                else:
-                    response = model.generate_content(prompt, request_options={"timeout": 120})
+                # יצירת רשימת קלט: פרומפט + כל התמונות
+                inputs = [prompt]
+                for img_file in uploaded_images:
+                    img = Image.open(img_file)
+                    inputs.append(img)
 
-                # ----- DEBUG -----
-                st.subheader("🧠 פלט גולמי מהמודל (Debug)")
-                st.code(response.text, language="json")
-                print("===== RAW MODEL OUTPUT =====")
-                print(response.text)
-                print("============================")
+                response = model.generate_content(inputs, request_options={"timeout": 120})
 
-                # ניתוח JSON
-                data = json.loads(response.text)
+                # ניקוי תווים בעייתיים
+                raw = response.text.strip()
+                raw = raw.replace('```json', '').replace('```', '').replace('\n', '').replace('\r', '')
+                raw = raw.replace('\\"', '"').replace("”", '"').replace("“", '"')
 
+                try:
+                    data = json.loads(raw)
+                except json.JSONDecodeError:
+                    st.warning("בוצעה התאמה אוטומטית לפלט JSON לא תקין.")
+                    fixed = raw[raw.find('{'):raw.rfind('}') + 1]
+                    data = json.loads(fixed)
+
+                # הצגת התוצאות
                 st.success(f"🚦 ציון כדאיות: {data['deal_score']}/100 — {data['classification']}")
                 st.write("🧾 **סיכום:**", data["short_verdict"])
                 st.write("🔍 **סיבות עיקריות:**")
@@ -101,12 +106,8 @@ if st.button("חשב ציון כדאיות"):
                     st.write(f"• {r}")
 
                 st.divider()
-                st.caption("© 2025 Car Advisor AI – AI-Deal-Checker | Debug Mode")
+                st.caption("© 2025 Car Advisor AI – AI-Deal-Checker | גרסה עם תמונות מרובות")
 
-            except json.JSONDecodeError:
-                st.error("⚠️ הפלט שהוחזר אינו JSON תקני.")
-                st.info("הנה הפלט שקיבלנו מהמנוע לצורך בדיקה:")
-                st.code(response.text)
-            except Exception as e:
-                st.error("❌ שגיאה כללית במהלך העיבוד.")
+            except Exception:
+                st.error("❌ לא ניתן היה לעבד את הפלט.")
                 st.code(traceback.format_exc())
