@@ -1,33 +1,32 @@
 # -*- coding: utf-8 -*-
 # ===========================================================
-# AI-Deal-Checker – Car Advisor AI Extension
-# גרסה 2.1 – תומכת בלינקים חסומים (Yad2 / Facebook)
+# AI-Deal-Checker – גרסת DEBUG
+# מציג פלט גולמי מהמנוע למעקב שגיאות
 # ===========================================================
 
 import streamlit as st
 import google.generativeai as genai
 import json
 from PIL import Image
+import traceback
 
 # ---------- הגדרות כלליות ----------
 st.set_page_config(page_title="AI Deal Checker 🚗", page_icon="🚗", layout="centered")
 
-# קריאת מפתח מ-secrets
+# קריאת מפתח API
 api_key = st.secrets["GEMINI_API_KEY"]
 genai.configure(api_key=api_key)
 
-# המודל המתקדם ביותר של Gemini
+# בחירת מודל מתקדם
 model = genai.GenerativeModel("gemini-2.5-pro")
 
-# ---------- כותרת ----------
+# ---------- ממשק ----------
 st.title("🚗 AI Deal Checker – בדיקת כדאיות מודעת רכב")
 st.write("הדבק קישור למודעה או העלה צילום מסך, והמערכת תחשב עבורך ציון אטרקטיביות חכם:")
 
-# ---------- קלט ----------
 url = st.text_input("🔗 הדבק כאן קישור למודעה (יד2, פייסבוק וכו׳):")
 uploaded_image = st.file_uploader("📸 או העלה צילום מסך של המודעה:", type=["jpg", "jpeg", "png"])
 
-# ---------- דיסקליימר ----------
 st.markdown(
     """
     <div style='background-color:#fff3cd; border-radius:10px; padding:10px; border:1px solid #ffeeba;'>
@@ -43,13 +42,11 @@ if st.button("חשב ציון כדאיות"):
     if not url and not uploaded_image:
         st.error("אנא הדבק קישור או העלה תמונה של המודעה.")
     else:
-        with st.spinner("🔍 מנתח את הנתונים..."):
-
-            prompt = f"""
+        with st.spinner("🔍 מבצע ניתוח חכם של המודעה..."):
+            try:
+                prompt = f"""
 אתה משמש כאנליסט מומחה לשוק הרכב הישראלי בתחום רכבים יד שנייה.
 אם הקישור המצורף חסום או שלא נפתח, השתמש בתוכן הידוע עליו ממקורות פתוחים באינטרנט (למשל Yad2, יד2, CarGuru, מחירון לוי יצחק) כדי להעריך את הנתונים של הדגם.
-
-נתון לך קישור או טקסט של מודעת רכב. עליך לנתח את העסקה ולחשב עד כמה היא אטרקטיבית מבחינת מחיר, תחזוקה, אמינות וביקוש בשוק.
 
 קישור או תוכן המודעה:
 {url if url else "ראה תמונה מצורפת"}
@@ -80,21 +77,21 @@ if st.button("חשב ציון כדאיות"):
 אל תכתוב טקסט לפני או אחרי ה-JSON.
 """
 
-            try:
-                # הפעלת המודל עם timeout מוגדל
+                # הפעלת המודל
                 if uploaded_image:
                     image = Image.open(uploaded_image)
-                    response = model.generate_content(
-                        [prompt, image],
-                        request_options={"timeout": 120}
-                    )
+                    response = model.generate_content([prompt, image], request_options={"timeout": 120})
                 else:
-                    response = model.generate_content(
-                        prompt,
-                        request_options={"timeout": 120}
-                    )
+                    response = model.generate_content(prompt, request_options={"timeout": 120})
 
-                # ניתוח פלט JSON
+                # ----- DEBUG -----
+                st.subheader("🧠 פלט גולמי מהמודל (Debug)")
+                st.code(response.text, language="json")
+                print("===== RAW MODEL OUTPUT =====")
+                print(response.text)
+                print("============================")
+
+                # ניתוח JSON
                 data = json.loads(response.text)
 
                 st.success(f"🚦 ציון כדאיות: {data['deal_score']}/100 — {data['classification']}")
@@ -104,7 +101,12 @@ if st.button("חשב ציון כדאיות"):
                     st.write(f"• {r}")
 
                 st.divider()
-                st.caption("© 2025 Car Advisor AI – AI-Deal-Checker | כל הזכויות שמורות.")
+                st.caption("© 2025 Car Advisor AI – AI-Deal-Checker | Debug Mode")
+
+            except json.JSONDecodeError:
+                st.error("⚠️ הפלט שהוחזר אינו JSON תקני.")
+                st.info("הנה הפלט שקיבלנו מהמנוע לצורך בדיקה:")
+                st.code(response.text)
             except Exception as e:
-                st.error("❌ לא הצלחנו לעבד את התוצאה. ייתכן שהמודעה חסומה או שהתוכן לא זמין כרגע.")
-                st.caption("נסה שוב בעוד מספר שניות או העלה צילום מסך של המודעה.")
+                st.error("❌ שגיאה כללית במהלך העיבוד.")
+                st.code(traceback.format_exc())
