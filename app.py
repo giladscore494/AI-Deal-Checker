@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ===========================================================
-# AI Deal Checker – גרסה מלאה, יציבה ומסחרית (Gemini 2.5 Flash)
-# Hybrid 70/30 + Learning + Market Correction + Full Prompt
+# AI-Deal-Checker – גרסה לומדת עם תיקון עקביות (Gemini 2.5 Flash)
+# כולל שלבים 1–7, מקרי קצה, תיקון JSON וגרף מגמה
 # ===========================================================
 
 import streamlit as st
@@ -10,16 +10,16 @@ import json, os, traceback
 from json_repair import repair_json
 from PIL import Image
 import pandas as pd
-from datetime import datetime
 
 # ---------- הגדרות כלליות ----------
-st.set_page_config(page_title="🚗 AI Deal Checker", page_icon="🚗", layout="centered")
+st.set_page_config(page_title="AI Deal Checker 🚗", page_icon="🚗", layout="centered")
 
-api_key = st.secrets["GEMINI_API_KEY"]
-genai.configure(api_key=api_key)
+API_KEY = st.secrets["GEMINI_API_KEY"]
+genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel("gemini-2.5-flash")
 
 HISTORY_FILE = "data_history.json"
+STABILITY_DIFF_THRESHOLD = 12  # פער נקודות שמפעיל אזהרת עקביות
 
 # ---------- פונקציות עזר ----------
 def load_history():
@@ -42,33 +42,9 @@ def get_model_avg(brand, model_name):
     ]
     return round(sum(scores) / len(scores), 2) if scores else None
 
-def calculate_rule_based_score(market_price, ad_price, mileage, year, is_taxi=False, private_owner=True):
-    """חישוב קשיח לפי נוסחה מסחרית מדויקת"""
-    try:
-        score = 70
-        if market_price and ad_price:
-            deviation = (market_price - ad_price) / market_price
-            score += deviation * 100 * 0.55  # משקל מחיר
-
-        if mileage and mileage > 100_000:
-            score -= (mileage - 100_000) / 10_000 * 1.5
-
-        if is_taxi:
-            score -= 25
-        elif not private_owner:
-            score -= 10
-
-        age = datetime.now().year - year if year else 0
-        if age > 5:
-            score -= (age - 5) * 2
-
-        return max(0, min(100, round(score)))
-    except Exception:
-        return 50
-
 # ---------- ממשק ----------
 st.title("🚗 AI Deal Checker – בדיקת כדאיות חכמה ולומדת")
-st.write("הדבק טקסט של מודעת רכב יד 2 והעלה תמונות במידת הצורך, כדי לבדוק את כדאיות העסקה לעומק:")
+st.write("העתק את טקסט המודעה (כולל מחיר, שנה, ק״מ וכו׳) והעלה תמונות של הרכב לביצוע הצלבה בין נתוני המודעה לנתוני השוק בפועל:")
 
 ad_text = st.text_area("📋 הדבק כאן את טקסט המודעה:", height=250)
 uploaded_images = st.file_uploader(
@@ -77,12 +53,15 @@ uploaded_images = st.file_uploader(
     accept_multiple_files=True
 )
 
-st.markdown("""
-<div style='background-color:#fff3cd;border-radius:10px;padding:10px;border:1px solid #ffeeba;'>
-⚠️ <b>הבהרה:</b> הניתוח מבוסס בינה מלאכותית ואינו תחליף לבדיקה מקצועית.  
-יש לבקש היסטוריית טיפולים מלאה ולהוציא דו״ח עבר ביטוחי לפני רכישה.
-</div>
-""", unsafe_allow_html=True)
+st.markdown(
+    """
+    <div style='background-color:#fff3cd; border-radius:10px; padding:10px; border:1px solid #ffeeba;'>
+    ⚠️ <b>הבהרה:</b> ניתוח זה מבוסס בינה מלאכותית ואינו תחליף לבדיקה מקצועית.
+    יש לבקש היסטוריית טיפולים מלאה ולהוציא דו״ח עבר ביטוחי לפני רכישה.
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 # ---------- פעולה ----------
 if st.button("חשב ציון כדאיות"):
@@ -91,82 +70,104 @@ if st.button("חשב ציון כדאיות"):
     else:
         with st.spinner("🔍 מבצע הצלבה חכמה בין נתוני המודעה לנתוני השוק..."):
             try:
+                # מפתח מודעה ייחודי
+                temp_key = ad_text.strip()[:80].lower().replace(" ", "_")
+
+                # --- בדיקת עקביות בין ציונים קודמים ---
+                history = load_history()
+                recent_entries = [
+                    {"score": h["deal_score"], "classification": h.get("classification", "לא צוין")}
+                    for h in history if h.get("_ad_key") == temp_key
+                ]
+                recent_scores = [r["score"] for r in recent_entries]
+
+                if len(recent_scores) >= 2:
+                    avg_prev = round(sum(recent_scores) / len(recent_scores), 1)
+                    diff = max(recent_scores) - min(recent_scores)
+                    if diff > STABILITY_DIFF_THRESHOLD:
+                        consistency_note = f"""
+                        📊 בבדיקות קודמות לאותו רכב התקבלו תוצאות שונות:
+                        {json.dumps(recent_entries, ensure_ascii=False, indent=2)}
+                        הממוצע ההיסטורי עומד על כ-{avg_prev} נק׳.
+                        אנא הפעם היה עקבי וחשב ציון מאוזן, קרוב לממוצע ההיסטורי.
+                        שמור על ציון בתחום {avg_prev - 5:.0f}–{avg_prev + 5:.0f} אלא אם קיימים נתונים חדשים לחלוטין.
+                        """
+                    else:
+                        consistency_note = ""
+                else:
+                    consistency_note = ""
+
                 # ---------- פרומפט מלא ----------
                 prompt = f"""
-אתה אנליסט מומחה לשוק הרכב הישראלי. תפקידך להעריך את כדאיות העסקה של רכב משומש לפי טקסט המודעה והתמונות המצורפות.
+אתה אנליסט מומחה לשוק הרכב הישראלי. עליך להעריך את כדאיות העסקה של רכב משומש לפי טקסט המודעה והתמונות המצורפות.
 
-עליך לפעול באופן אנליטי ומאוזן, ללא תנודתיות בין הרצות זהות, ולתת הערכה מדויקת ככל האפשר.
+{consistency_note}
+
+עליך לספק הערכה **מדויקת, מאוזנת ומבוססת עובדות** — לא אופטימית מדי ולא זהירה מדי.
 
 ---
 
-🔹 **שלב 1 – ניתוח טקסט המודעה**
-קרא את הטקסט הבא:
+🔹 **שלב 1 – ניתוח תוכן המודעה**
+קרא את המודעה:
 \"\"\"{ad_text}\"\"\"
-הפק את הנתונים הבאים: יצרן, דגם, גרסה, שנה, ק״מ, מחיר, סוג דלק, יד, בעלות, טסט, תקלות או שיפורים, אזור, הצהרות המוכר.
-
-ציין במפורש מהם נתונים שהופקו ישירות מהמודעה, ומה חסר.
+הפק ממנה את כל הנתונים (יצרן, דגם, גרסה, שנה, מחיר, ק״מ, דלק, יד, אזור, טסט, היסטוריית טיפולים, תקלות וכו׳)
+וציין אילו מהם הופקו ישירות מהמודעה.
 
 ---
 
-🔹 **שלב 2 – חיפוש נתוני שוק אמינים**
-השלם מידע ממקורות ציבוריים מוכרים (כמו yad2, לוי יצחק, iCar, Edmunds, CarBuzz וכו׳):
-- מחיר שוק ממוצע (₪)
-- דירוג אמינות (0–100)
-- עלות תחזוקה שנתית ממוצעת (₪)
+🔹 **שלב 2 – נתוני שוק חיצוניים**
+מצא מידע עדכני באינטרנט על הדגם:
+- מחיר שוק ממוצע
+- דירוג אמינות
+- עלויות תחזוקה
 - תקלות ידועות
-- רמת ביקוש
-- נתוני בטיחות
+- ביקוש
+- בטיחות
 
 ---
 
-🔹 **שלב 3 – הצלבה לוגית**
-השווה בין הנתונים שהמוכר מסר לבין נתוני השוק:
-- האם המחיר נמוך, גבוה או תואם?
-- האם הק״מ מתאים לשנה?
-- האם חסרים פרטים חשובים?
-- האם יש פערים לא הגיוניים?
+🔹 **שלב 3 – הצלבה**
+השווה בין הנתונים מהמודעה לנתוני השוק. ציין פערים, בעיות או יתרונות.
 
 ---
 
 🔹 **שלב 4 – שיקולי זהירות צרכנית**
-הורד ציון במקרים:
-- מחיר נמוך מ־15% מהשוק ללא סיבה.
-- אין היסטוריית טיפולים.
-- ק״מ מעל 180,000.
-- יד 4 ומעלה.
-- שלדה / צבע מוחלף.
-- רכב ישן עם תחזוקה יקרה.
-- תקלות ידועות בגיר / טורבו.
-- רכב חשמלי ישן עם סוללה לא נבדקה.
+בצע הורדת ציון רק אם קיימים סימני סיכון אמיתיים:
+- מחיר נמוך ב־15%+ ללא סיבה
+- אין היסטוריית טיפולים
+- ק״מ מעל 180K
+- יד מרובה (4+)
+- צבע מוחלף / שלדה
+- רכב ליסינג לא מטופל
+- טורבו ישן ולא מתוחזק
+- רכב ישן עם תחזוקה יקרה
+- בעיות גיר ידועות
+- רכב חשמלי ישן עם סוללה לא נבדקה
 
 ---
 
-🔹 **שלב 4.5 – איזון מקרי קצה (18 סיטואציות חובה)**
-1. אל תוריד ציון על ק״מ גבוה אם יש טיפולים מוכחים.  
-2. מחיר נמוך עד 10% = תקין.  
-3. מחיר גבוה עד 15% = מוצדק אם רמת גימור גבוהה.  
-4. ק״מ גבוה ברכבי שטח = תקין.  
-5. רכבי נישה (Abarth, Mini, GTI, MX-5) לא נמדדים לפי ביקוש.  
-6. ניסוחים רשלניים לא בהכרח חשודים.  
-7. מודעה קצרה → השלם מידע חסר מהשוק.  
-8. מחיר נמוך ב־50% → ייתכן רכב מושבת / הונאה.  
-9. יבוא אישי = אל תשווה לשוק רגיל.  
-10. רכב אספנות = גיל לא חיסרון.  
-11. רכב סוחר = הפחת אמינות.  
-12. “מחיר סופי” או “מכירה מהירה” לא בהכרח חשד.  
-13. צבע חריג מקורי = לא חיסרון.  
-14. אין ק״מ במודעה → הערך ממוצע 18K לשנה.  
-15. אזור לח (אשדוד, אילת) → סיכון חלודה קל.  
-16. חסר מחיר → הערך לפי טווח מודעות דומות.  
-17. ליסינג שטופל = תקין.  
-18. ניסוחים בשפה זרה → התייחס רק לנתונים אמינים.
+🔹 **שלב 4.5 – מקרי קצה**
+1. ק״מ מעט גבוה ≠ שלילה אם יש היסטוריית טיפולים.  
+2. מחיר נמוך עד 10% ≠ חשוד.  
+3. מחיר גבוה מוצדק אם רמת גימור גבוהה.  
+4. רכבי נישה (Abarth, Mini, GTI) נמדדים לפי תחזוקה ולא ביקוש.  
+5. אזור חוף = שקול לסיכון חלודה.  
+6. מחיר נמוך ב־50% → חשד לרכב מושבת.  
+7. סוחר → הפחת אמינות.  
+8. “מחיר סופי” ≠ בעיה.  
+9. רכב אספנות ≠ שלילה.  
+10. אין ק״מ = הערך ממוצע.  
+11. יד ראשונה ליסינג שטופלה = תקין.  
+12. טורבו ישן = סיכון.  
+13. חסר מחיר = הערך לפי טווח.  
+14. ניסוחים רשלניים ≠ בהכרח בעיה.  
+15. נתונים מהתמונות גוברים על טקסט המודעה.
 
 ---
 
-🔹 **שלב 5 – חישוב הציון (0–100)**
-שקלול מלא:
+🔹 **שלב 5 – נוסחת ציון (0–100)**
 - מחיר מול שוק – 25%
-- תחזוקה ומצב כללי – 25%
+- תחזוקה ומצב – 25%
 - אמינות דגם – 20%
 - גיל וק״מ – 15%
 - אמינות מוכר – 10%
@@ -174,49 +175,23 @@ if st.button("חשב ציון כדאיות"):
 
 ---
 
-🔹 **שלב 6 – פלט JSON**
-החזר אך ורק JSON תקני בפורמט הבא:
+🔹 **שלב 6 – הפלט**
+החזר JSON תקני בלבד:
 {{
-  "from_ad": {{
-    "brand": "",
-    "model": "",
-    "year": 0,
-    "mileage_km": 0,
-    "price_nis": 0,
-    "is_taxi": false,
-    "is_private": true,
-    "ad_claims": []
-  }},
-  "from_internet": {{
-    "market_estimate_nis": 0,
-    "reliability_score": 0,
-    "avg_maintenance_cost": 0,
-    "demand_level": "נמוך" | "בינוני" | "גבוה",
-    "known_issues": []
-  }},
-  "cross_analysis": {{
-    "price_alignment": "גבוה" | "נמוך" | "סביר",
-    "condition_alignment": "תואם" | "לא תואם",
-    "key_differences": []
-  }},
-  "deal_score": 0,
-  "classification": "עסקה מעולה" | "עסקה טובה" | "עסקה סבירה" | "יקרה מדי" | "מסוכנת",
-  "short_verdict": "",
-  "key_reasons": [],
-  "ai_confidence": 0.0,
-  "user_info": {{
-    "reliability_summary": "",
-    "common_faults": [],
-    "maintenance_tips": [],
-    "market_context": ""
-  }}
+  "from_ad": {{"brand":"", "model":"", "year":0, "mileage_km":0, "price_nis":0, "ad_claims":[]}},
+  "from_internet": {{"market_estimate_nis":0, "reliability_score":0, "avg_maintenance_cost":0, "demand_level":"", "known_issues":[]}},
+  "cross_analysis": {{"price_alignment":"", "condition_alignment":"", "key_differences":[]}},
+  "deal_score":0,
+  "classification":"",
+  "short_verdict":"",
+  "key_reasons":[],
+  "user_info": {{"reliability_summary":"", "maintenance_tips":[], "common_faults":[], "market_context":""}}
 }}
 
 ---
 
-🔹 **שלב 7 – תיקון למידה**
-אם יש נתוני היסטוריה על הדגם – השווה את הציון לממוצע ההיסטורי.
-אם יש הבדל של מעל 15 נק׳, בצע תיקון מתון לכיוון הממוצע.
+🔹 **שלב 7 – למידת דפוסים מצטברים**
+אם הציון שונה ביותר מ־15 נק׳ מהממוצע ההיסטורי של הדגם → בצע תיקון קל כלפי הממוצע.
 """
 
                 # ---------- קריאה למודל ----------
@@ -227,55 +202,33 @@ if st.button("חשב ציון כדאיות"):
                 response = model.generate_content(inputs, request_options={"timeout": 120})
                 fixed_json = repair_json(response.text)
                 data = json.loads(fixed_json)
+                data["_ad_key"] = temp_key  # שמירת מזהה מודעה
 
-                # ---------- Hybrid 70/30 ----------
-                rule_score = calculate_rule_based_score(
-                    data["from_internet"]["market_estimate_nis"],
-                    data["from_ad"]["price_nis"],
-                    data["from_ad"]["mileage_km"],
-                    data["from_ad"]["year"],
-                    is_taxi=data["from_ad"].get("is_taxi", False),
-                    private_owner=data["from_ad"].get("is_private", True)
-                )
-
-                ai_score = data["deal_score"]
-                ai_confidence = data.get("ai_confidence", 0.8)
-                final_score = round((rule_score * 0.7) + (ai_score * 0.3))
-
-                data["rule_score"] = rule_score
-                data["ai_score"] = ai_score
-                data["deal_score"] = final_score
-                data["ai_confidence"] = ai_confidence
-
-                # ---------- תיקון ממוצע היסטורי ----------
+                # ---------- תיקון שוק ----------
                 avg = get_model_avg(data["from_ad"]["brand"], data["from_ad"]["model"])
                 if avg:
-                    diff = final_score - avg
+                    diff = data["deal_score"] - avg
                     if abs(diff) >= 15:
                         correction = -diff * 0.5
-                        data["deal_score"] = int(final_score + correction)
-                        data["short_verdict"] += f" ⚙️ (תיקון קל לפי ממוצע היסטורי: {avg})"
+                        data["deal_score"] = int(data["deal_score"] + correction)
+                        data["short_verdict"] += f" ⚙️ (בוצע תיקון קל לפי ממוצע היסטורי: {avg})"
 
                 save_to_history(data)
 
                 # ---------- תצוגה ----------
                 score = data["deal_score"]
-                if score >= 80: color = "#28a745"
-                elif score >= 60: color = "#ffc107"
-                else: color = "#dc3545"
+                color = "#28a745" if score >= 80 else "#ffc107" if score >= 60 else "#dc3545"
 
                 st.markdown(f"<h3 style='color:{color}'>🚦 ציון כדאיות כולל: {score}/100 — {data['classification']}</h3>", unsafe_allow_html=True)
-                st.write(f"**AI:** {ai_score} ({int(ai_confidence*100)}% ביטחון) | **קוד:** {rule_score}")
+                st.write("🧾 **סיכום:**", data["short_verdict"])
                 st.divider()
 
-                st.write("🧾 **סיכום:**", data["short_verdict"])
                 st.subheader("📋 נתונים מתוך המודעה:")
                 st.json(data["from_ad"])
                 st.subheader("🌍 נתוני שוק שנמצאו באינטרנט:")
                 st.json(data["from_internet"])
                 st.subheader("🔍 הצלבה וניתוח פערים:")
                 st.json(data["cross_analysis"])
-
                 st.subheader("🧠 סיבות עיקריות לציון:")
                 for r in data["key_reasons"]:
                     st.write(f"• {r}")
@@ -287,31 +240,21 @@ if st.button("חשב ציון כדאיות"):
                     st.write(f"**אמינות הדגם:** {info.get('reliability_summary', 'לא צוין')}")
                     if info.get("common_faults"):
                         st.write("**תקלות נפוצות:**")
-                        for f in info["common_faults"]:
-                            st.write(f"• {f}")
+                        for f in info["common_faults"]: st.write(f"• {f}")
                     if info.get("maintenance_tips"):
                         st.write("**טיפים לתחזוקה:**")
-                        for tip in info["maintenance_tips"]:
-                            st.write(f"• {tip}")
+                        for tip in info["maintenance_tips"]: st.write(f"• {tip}")
                     if info.get("market_context"):
                         st.write("**הקשר שוק כללי:**", info["market_context"])
 
-                # ---------- גרף מגמה ----------
-                history = load_history()
-                model_entries = [
-                    h for h in history
-                    if h["from_ad"]["brand"] == data["from_ad"]["brand"]
-                    and data["from_ad"]["model"] in h["from_ad"]["model"]
-                ]
+                # גרף מגמה
+                model_entries = [h for h in history if h.get("_ad_key") == temp_key]
                 if len(model_entries) >= 2:
-                    df = pd.DataFrame([
-                        {"Index": i + 1, "Score": h["deal_score"]}
-                        for i, h in enumerate(model_entries)
-                    ])
+                    df = pd.DataFrame([{"Index": i + 1, "Score": h["deal_score"]} for i, h in enumerate(model_entries)])
                     st.line_chart(df.set_index("Index"), height=200)
-                    st.caption("📈 מגמת ציונים היסטורית לדגם זה")
+                    st.caption("📈 מגמת ציונים היסטורית למודעה זו")
 
-                st.caption("© 2025 Car Advisor AI – גרסה מסחרית מלאה • Gemini 2.5 Flash • Hybrid 70/30")
+                st.caption("© 2025 Car Advisor AI – גרסה עם תיקון עקביות וסיווגים היסטוריים")
 
             except Exception as e:
                 st.error("❌ שגיאה בעיבוד הפלט או בקריאת המידע מהמודל.")
